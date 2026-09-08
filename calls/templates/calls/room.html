@@ -1,267 +1,1174 @@
 <!DOCTYPE html>
+
 <html>
 <head>
     <title>Call Room: {{ room_name }}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: #121212;
-            color: #eee;
-            margin: 0;
-            padding: 20px;
-        }
-        h1 {
-            font-size: 18px;
-            font-weight: 500;
-            color: #aaa;
-            margin-bottom: 20px;
-        }
-        h1 span {
-            color: #fff;
-            font-weight: 600;
-        }
-        #videoGrid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 12px;
-            max-width: 1100px;
-        }
-        .tile {
-            position: relative;
-            background: #1e1e1e;
-            border-radius: 10px;
-            overflow: hidden;
-            aspect-ratio: 4 / 3;
-        }
-        .tile video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-        }
-        .tile .label {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0,0,0,0.55);
-            padding: 3px 8px;
-            border-radius: 5px;
-            font-size: 12px;
-        }
-        #status {
-            margin-top: 16px;
-            font-size: 13px;
-            color: #777;
-        }
-        #log {
-            margin-top: 10px;
-            font-size: 12px;
-            color: #555;
-            max-height: 120px;
-            overflow-y: auto;
-        }
-        #log p { margin: 2px 0; }
-    </style>
-</head>
-<body>
-    <h1>Room: <span>{{ room_name }}</span></h1>
 
-    <div id="videoGrid">
-        <div class="tile" id="tile-local">
-            <video id="localVideo" autoplay playsinline muted></video>
-            <div class="label">You</div>
-        </div>
+```
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #121212;
+        color: #eee;
+        margin: 0;
+        padding: 20px;
+    }
+
+    h1 {
+        font-size: 18px;
+        font-weight: 500;
+        color: #aaa;
+        margin-bottom: 20px;
+    }
+
+    h1 span {
+        color: #fff;
+        font-weight: 600;
+    }
+
+    #videoGrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+        max-width: 1100px;
+    }
+
+    .tile {
+        position: relative;
+        background: #1e1e1e;
+        border-radius: 10px;
+        overflow: hidden;
+        aspect-ratio: 4 / 3;
+    }
+
+    .tile video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .tile .label {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 3px 8px;
+        border-radius: 5px;
+        font-size: 12px;
+    }
+
+    #status {
+        margin-top: 16px;
+        font-size: 13px;
+        color: #777;
+    }
+
+    #log {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #555;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+
+    #log p {
+        margin: 2px 0;
+    }
+</style>
+```
+
+</head>
+
+<body>
+
+```
+<h1>
+    Room: <span>{{ room_name }}</span>
+</h1>
+
+<div id="videoGrid">
+
+    <!-- Local video -->
+    <div class="tile" id="tile-local">
+        <video
+            id="localVideo"
+            autoplay
+            playsinline
+            muted>
+        </video>
+
+        <div class="label">You</div>
     </div>
 
-    <div id="status">Connecting…</div>
-    <div id="log"></div>
+</div>
 
-    <script>
-        const roomName = "{{ room_name }}";
-        const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-        const callSocket = new WebSocket(
-            wsProtocol + window.location.host + "/ws/call/" + roomName + "/"
+<div id="status">Connecting…</div>
+
+<div id="log"></div>
+
+
+<script>
+
+    // ============================================================
+    // ROOM / WEBSOCKET
+    // ============================================================
+
+    const roomName = "{{ room_name }}";
+
+    const wsProtocol =
+        window.location.protocol === "https:"
+            ? "wss://"
+            : "ws://";
+
+    const callSocket = new WebSocket(
+        wsProtocol +
+        window.location.host +
+        "/ws/call/" +
+        roomName +
+        "/"
+    );
+
+
+    // ============================================================
+    // LOGGING
+    // ============================================================
+
+    function log(message) {
+
+        console.log(message);
+
+        const p = document.createElement("p");
+
+        p.textContent = message;
+
+        document
+            .getElementById("log")
+            .appendChild(p);
+    }
+
+
+    function setStatus(message) {
+
+        document
+            .getElementById("status")
+            .textContent = message;
+
+    }
+
+
+    // ============================================================
+    // LOCAL MEDIA
+    // ============================================================
+
+    let localStream = null;
+
+
+    // peerId -> RTCPeerConnection
+    const peerConnections = {};
+
+
+    // Store ICE candidates that arrive before remote description
+    const pendingCandidates = {};
+
+
+    // ============================================================
+    // STUN / TURN
+    // ============================================================
+
+    const iceServers = {
+
+        iceServers: [
+
+            // Google STUN
+            {
+                urls: "stun:stun.l.google.com:19302"
+            },
+
+            // TURN
+            {
+                urls: "turn:openrelay.metered.ca:80",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            },
+
+            {
+                urls: "turn:openrelay.metered.ca:443",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            },
+
+            {
+                urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            }
+
+        ]
+
+    };
+
+
+    // ============================================================
+    // START CAMERA + MICROPHONE
+    // ============================================================
+
+    async function startMedia() {
+
+        try {
+
+            log("Requesting camera and microphone...");
+
+            localStream =
+                await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+
+
+            const localVideo =
+                document.getElementById("localVideo");
+
+
+            localVideo.srcObject =
+                localStream;
+
+
+            log("Camera and microphone ready.");
+
+            setStatus(
+                "Camera ready. Waiting for others to join…"
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(error);
+
+            log(
+                "ERROR: Could not access camera/microphone — " +
+                error.message
+            );
+
+            setStatus(
+                "Camera/mic access failed: " +
+                error.message
+            );
+
+        }
+
+    }
+
+
+    // ============================================================
+    // WAIT FOR LOCAL STREAM
+    // ============================================================
+
+    function waitForLocalStream() {
+
+        return new Promise((resolve) => {
+
+            if (localStream) {
+
+                resolve();
+
+                return;
+
+            }
+
+
+            const check =
+                setInterval(() => {
+
+                    if (localStream) {
+
+                        clearInterval(check);
+
+                        resolve();
+
+                    }
+
+                }, 100);
+
+        });
+
+    }
+
+
+    // ============================================================
+    // ADD REMOTE VIDEO TILE
+    // ============================================================
+
+    function addTile(peerId) {
+
+        const existing =
+            document.getElementById(
+                "tile-" + peerId
+            );
+
+
+        if (existing) {
+
+            return;
+
+        }
+
+
+        const tile =
+            document.createElement("div");
+
+
+        tile.className = "tile";
+
+        tile.id =
+            "tile-" + peerId;
+
+
+        tile.innerHTML = `
+
+            <video
+                id="video-${peerId}"
+                autoplay
+                playsinline>
+            </video>
+
+            <div class="label">
+                ${peerId.slice(0, 8)}
+            </div>
+
+        `;
+
+
+        document
+            .getElementById("videoGrid")
+            .appendChild(tile);
+
+    }
+
+
+    // ============================================================
+    // REMOVE REMOTE VIDEO TILE
+    // ============================================================
+
+    function removeTile(peerId) {
+
+        const tile =
+            document.getElementById(
+                "tile-" + peerId
+            );
+
+
+        if (tile) {
+
+            tile.remove();
+
+        }
+
+    }
+
+
+    // ============================================================
+    // CREATE PEER CONNECTION
+    // ============================================================
+
+    function createPeerConnection(peerId) {
+
+
+        // IMPORTANT:
+        // Don't create a second connection if one already exists.
+
+        if (peerConnections[peerId]) {
+
+            log(
+                "Using existing connection for peer " +
+                peerId.slice(0, 8)
+            );
+
+            return peerConnections[peerId];
+
+        }
+
+
+        log(
+            "Creating WebRTC connection for peer " +
+            peerId.slice(0, 8)
         );
 
-        function log(msg) {
-            console.log(msg);
-            const p = document.createElement("p");
-            p.textContent = msg;
-            document.getElementById("log").appendChild(p);
+
+        const pc =
+            new RTCPeerConnection(
+                iceServers
+            );
+
+
+        // ========================================================
+        // ADD OUR CAMERA + MICROPHONE
+        // ========================================================
+
+        if (localStream) {
+
+            localStream
+                .getTracks()
+                .forEach((track) => {
+
+                    console.log(
+                        "Adding local track:",
+                        track.kind
+                    );
+
+                    pc.addTrack(
+                        track,
+                        localStream
+                    );
+
+                });
+
         }
 
-        function setStatus(msg) {
-            document.getElementById("status").textContent = msg;
-        }
 
-        let localStream = null;
-        const peerConnections = {};   // peerId -> RTCPeerConnection
-        const iceServers = {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                {
-                    urls: "turn:openrelay.metered.ca:80",
-                    username: "openrelayproject",
-                    credential: "openrelayproject",
-                },
-                {
-                    urls: "turn:openrelay.metered.ca:443",
-                    username: "openrelayproject",
-                    credential: "openrelayproject",
-                },
-                {
-                    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                    username: "openrelayproject",
-                    credential: "openrelayproject",
-                },
-            ]
-        };
+        // ========================================================
+        // RECEIVE REMOTE CAMERA + MICROPHONE
+        // ========================================================
 
-        async function startMedia() {
+        pc.ontrack = async (event) => {
+
+            console.log(
+                "REMOTE TRACK RECEIVED:",
+                event.track.kind
+            );
+
+
+            log(
+                "Remote " +
+                event.track.kind +
+                " track received from " +
+                peerId.slice(0, 8)
+            );
+
+
+            addTile(peerId);
+
+
+            const video =
+                document.getElementById(
+                    "video-" + peerId
+                );
+
+
+            if (!video) {
+
+                console.error(
+                    "Remote video element not found"
+                );
+
+                return;
+
+            }
+
+
+            // Attach remote stream
+            if (event.streams && event.streams[0]) {
+
+                video.srcObject =
+                    event.streams[0];
+
+            }
+
+
+            // Make sure the video plays
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                document.getElementById("localVideo").srcObject = localStream;
-            } catch (err) {
-                log("ERROR: could not access camera/mic — " + err.message);
-                setStatus("Camera/mic access failed: " + err.message);
+
+                await video.play();
+
+                log(
+                    "Remote video is playing."
+                );
+
             }
-        }
 
-        // Ensures we don't process offers/answers before our own media is ready
-        function waitForLocalStream() {
-            return new Promise((resolve) => {
-                if (localStream) {
-                    resolve();
-                    return;
-                }
-                const check = setInterval(() => {
-                    if (localStream) {
-                        clearInterval(check);
-                        resolve();
-                    }
-                }, 100);
-            });
-        }
+            catch (error) {
 
-        function addTile(peerId) {
-            if (document.getElementById("tile-" + peerId)) return;
-            const tile = document.createElement("div");
-            tile.className = "tile";
-            tile.id = "tile-" + peerId;
-            tile.innerHTML = `
-                <video id="video-${peerId}" autoplay playsinline></video>
-                <div class="label">${peerId.slice(0, 8)}</div>
-            `;
-            document.getElementById("videoGrid").appendChild(tile);
-        }
+                console.error(
+                    "Remote video play error:",
+                    error
+                );
 
-        function removeTile(peerId) {
-            const tile = document.getElementById("tile-" + peerId);
-            if (tile) tile.remove();
-        }
+                log(
+                    "Remote video could not autoplay."
+                );
 
-        function createPeerConnection(peerId) {
-            const pc = new RTCPeerConnection(iceServers);
-
-            localStream.getTracks().forEach(track => {
-                pc.addTrack(track, localStream);
-            });
-
-            pc.ontrack = (event) => {
-                addTile(peerId);
-                document.getElementById("video-" + peerId).srcObject = event.streams[0];
-            };
-
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    callSocket.send(JSON.stringify({
-                        type: "ice-candidate",
-                        candidate: event.candidate,
-                        target: peerId,
-                    }));
-                }
-            };
-
-            pc.onconnectionstatechange = () => {
-                log(`Peer ${peerId.slice(0, 8)}: ${pc.connectionState}`);
-                if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-                    closePeer(peerId);
-                }
-            };
-
-            peerConnections[peerId] = pc;
-            return pc;
-        }
-
-        function closePeer(peerId) {
-            const pc = peerConnections[peerId];
-            if (pc) {
-                pc.close();
-                delete peerConnections[peerId];
             }
-            removeTile(peerId);
-        }
 
-        async function makeOfferTo(peerId) {
-            const pc = createPeerConnection(peerId);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            callSocket.send(JSON.stringify({
-                type: "offer",
-                sdp: offer,
-                target: peerId,
-            }));
-        }
-
-        callSocket.onopen = async function() {
-            log("WebSocket connected.");
-            setStatus("Waiting for others to join…");
-            await startMedia();
         };
 
-        callSocket.onmessage = async function(e) {
-            const data = JSON.parse(e.data);
-            const peerId = data.sender;
 
-            // Wait until our own camera/mic stream is ready before handling any peer signaling
+        // ========================================================
+        // ICE CANDIDATES
+        // ========================================================
+
+        pc.onicecandidate = (event) => {
+
+            if (!event.candidate) {
+
+                return;
+
+            }
+
+
+            console.log(
+                "Sending ICE candidate:",
+                event.candidate.candidate
+            );
+
+
+            callSocket.send(
+                JSON.stringify({
+
+                    type: "ice-candidate",
+
+                    candidate:
+                        event.candidate,
+
+                    target:
+                        peerId
+
+                })
+            );
+
+        };
+
+
+        // ========================================================
+        // CONNECTION STATE
+        // ========================================================
+
+        pc.onconnectionstatechange = () => {
+
+            log(
+                "Peer " +
+                peerId.slice(0, 8) +
+                ": " +
+                pc.connectionState
+            );
+
+
+            if (
+                pc.connectionState === "connected"
+            ) {
+
+                setStatus(
+                    "Connected to " +
+                    peerId.slice(0, 8)
+                );
+
+            }
+
+
+            if (
+                pc.connectionState === "failed"
+            ) {
+
+                log(
+                    "WebRTC connection failed."
+                );
+
+            }
+
+
+            if (
+                pc.connectionState === "disconnected"
+            ) {
+
+                log(
+                    "WebRTC connection disconnected."
+                );
+
+            }
+
+
+            if (
+                pc.connectionState === "closed"
+            ) {
+
+                closePeer(peerId);
+
+            }
+
+        };
+
+
+        // ========================================================
+        // ICE CONNECTION STATE
+        // ========================================================
+
+        pc.oniceconnectionstatechange = () => {
+
+            console.log(
+                "ICE state:",
+                pc.iceConnectionState
+            );
+
+
+            log(
+                "ICE connection: " +
+                pc.iceConnectionState
+            );
+
+        };
+
+
+        // Save connection
+
+        peerConnections[peerId] =
+            pc;
+
+
+        return pc;
+
+    }
+
+
+    // ============================================================
+    // CLOSE PEER
+    // ============================================================
+
+    function closePeer(peerId) {
+
+        const pc =
+            peerConnections[peerId];
+
+
+        if (pc) {
+
+            try {
+
+                pc.close();
+
+            }
+
+            catch (error) {
+
+                console.error(error);
+
+            }
+
+
+            delete peerConnections[peerId];
+
+        }
+
+
+        delete pendingCandidates[peerId];
+
+
+        removeTile(peerId);
+
+    }
+
+
+    // ============================================================
+    // CREATE OFFER
+    // ============================================================
+
+    async function makeOfferTo(peerId) {
+
+        try {
+
+            const pc =
+                createPeerConnection(peerId);
+
+
+            // Don't create another offer while negotiating
+            if (
+                pc.signalingState !== "stable"
+            ) {
+
+                log(
+                    "Skipping offer because connection is already negotiating."
+                );
+
+                return;
+
+            }
+
+
+            log(
+                "Creating offer for " +
+                peerId.slice(0, 8)
+            );
+
+
+            const offer =
+                await pc.createOffer();
+
+
+            await pc.setLocalDescription(
+                offer
+            );
+
+
+            callSocket.send(
+                JSON.stringify({
+
+                    type: "offer",
+
+                    sdp:
+                        pc.localDescription,
+
+                    target:
+                        peerId
+
+                })
+            );
+
+
+            log(
+                "Offer sent to " +
+                peerId.slice(0, 8)
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "Offer error:",
+                error
+            );
+
+            log(
+                "Offer error: " +
+                error.message
+            );
+
+        }
+
+    }
+
+
+    // ============================================================
+    // WEBSOCKET OPEN
+    // ============================================================
+
+    callSocket.onopen = async () => {
+
+        log(
+            "WebSocket connected."
+        );
+
+
+        setStatus(
+            "Connecting camera..."
+        );
+
+
+        await startMedia();
+
+    };
+
+
+    // ============================================================
+    // RECEIVE SIGNALING MESSAGE
+    // ============================================================
+
+    callSocket.onmessage = async (event) => {
+
+        try {
+
+            const data =
+                JSON.parse(event.data);
+
+
+            const peerId =
+                data.sender;
+
+
+            if (!peerId) {
+
+                return;
+
+            }
+
+
             await waitForLocalStream();
 
-            log("Received: " + data.type + " from " + (peerId ? peerId.slice(0, 8) : "?"));
 
-            if (data.type === "peer-joined") {
-                await makeOfferTo(peerId);
-                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
+            log(
+                "Received: " +
+                data.type +
+                " from " +
+                peerId.slice(0, 8)
+            );
 
-            } else if (data.type === "offer") {
-                const pc = createPeerConnection(peerId);
-                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                callSocket.send(JSON.stringify({
-                    type: "answer",
-                    sdp: answer,
-                    target: peerId,
-                }));
-                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
 
-            } else if (data.type === "answer") {
-                const pc = peerConnections[peerId];
-                if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            // ====================================================
+            // PEER JOINED
+            // ====================================================
 
-            } else if (data.type === "ice-candidate") {
-                const pc = peerConnections[peerId];
-                if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            if (
+                data.type === "peer-joined"
+            ) {
 
-            } else if (data.type === "peer-left") {
-                closePeer(peerId);
-                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
+                await makeOfferTo(
+                    peerId
+                );
+
             }
-        };
 
-        callSocket.onclose = function() {
-            log("WebSocket closed.");
-            setStatus("Disconnected");
-        };
-    </script>
+
+            // ====================================================
+            // OFFER
+            // ====================================================
+
+            else if (
+                data.type === "offer"
+            ) {
+
+                const pc =
+                    createPeerConnection(
+                        peerId
+                    );
+
+
+                // If we're already connected,
+                // don't replace the existing connection.
+
+                if (
+                    pc.signalingState !==
+                    "stable" &&
+                    pc.signalingState !==
+                    "have-remote-offer"
+                ) {
+
+                    log(
+                        "Ignoring duplicate offer from " +
+                        peerId.slice(0, 8)
+                    );
+
+                    return;
+
+                }
+
+
+                await pc.setRemoteDescription(
+                    new RTCSessionDescription(
+                        data.sdp
+                    )
+                );
+
+
+                // Add any ICE candidates
+                // that arrived early.
+
+                if (
+                    pendingCandidates[peerId]
+                ) {
+
+                    for (
+                        const candidate
+                        of pendingCandidates[peerId]
+                    ) {
+
+                        try {
+
+                            await pc.addIceCandidate(
+                                candidate
+                            );
+
+                        }
+
+                        catch (error) {
+
+                            console.error(
+                                "ICE candidate error:",
+                                error
+                            );
+
+                        }
+
+                    }
+
+
+                    delete pendingCandidates[
+                        peerId
+                    ];
+
+                }
+
+
+                const answer =
+                    await pc.createAnswer();
+
+
+                await pc.setLocalDescription(
+                    answer
+                );
+
+
+                callSocket.send(
+                    JSON.stringify({
+
+                        type: "answer",
+
+                        sdp:
+                            pc.localDescription,
+
+                        target:
+                            peerId
+
+                    })
+                );
+
+
+                log(
+                    "Answer sent to " +
+                    peerId.slice(0, 8)
+                );
+
+            }
+
+
+            // ====================================================
+            // ANSWER
+            // ====================================================
+
+            else if (
+                data.type === "answer"
+            ) {
+
+                const pc =
+                    peerConnections[
+                        peerId
+                    ];
+
+
+                if (!pc) {
+
+                    log(
+                        "No peer connection found for answer."
+                    );
+
+                    return;
+
+                }
+
+
+                if (
+                    pc.signalingState !==
+                    "have-local-offer"
+                ) {
+
+                    log(
+                        "Ignoring answer because connection is not waiting for an answer."
+                    );
+
+                    return;
+
+                }
+
+
+                await pc.setRemoteDescription(
+                    new RTCSessionDescription(
+                        data.sdp
+                    )
+                );
+
+
+                log(
+                    "Remote answer applied."
+                );
+
+
+                // Process candidates that arrived early
+
+                if (
+                    pendingCandidates[peerId]
+                ) {
+
+                    for (
+                        const candidate
+                        of pendingCandidates[peerId]
+                    ) {
+
+                        try {
+
+                            await pc.addIceCandidate(
+                                candidate
+                            );
+
+                        }
+
+                        catch (error) {
+
+                            console.error(
+                                "ICE candidate error:",
+                                error
+                            );
+
+                        }
+
+                    }
+
+
+                    delete pendingCandidates[
+                        peerId
+                    ];
+
+                }
+
+            }
+
+
+            // ====================================================
+            // ICE CANDIDATE
+            // ====================================================
+
+            else if (
+                data.type === "ice-candidate"
+            ) {
+
+                const candidate =
+                    new RTCIceCandidate(
+                        data.candidate
+                    );
+
+
+                const pc =
+                    peerConnections[
+                        peerId
+                    ];
+
+
+                if (
+                    !pc ||
+                    !pc.remoteDescription
+                ) {
+
+                    if (
+                        !pendingCandidates[
+                            peerId
+                        ]
+                    ) {
+
+                        pendingCandidates[
+                            peerId
+                        ] = [];
+
+                    }
+
+
+                    pendingCandidates[
+                        peerId
+                    ].push(candidate);
+
+
+                    log(
+                        "Stored ICE candidate until remote description is ready."
+                    );
+
+
+                    return;
+
+                }
+
+
+                try {
+
+                    await pc.addIceCandidate(
+                        candidate
+                    );
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Could not add ICE candidate:",
+                        error
+                    );
+
+                }
+
+            }
+
+
+            // ====================================================
+            // PEER LEFT
+            // ====================================================
+
+            else if (
+                data.type === "peer-left"
+            ) {
+
+                closePeer(
+                    peerId
+                );
+
+
+                setStatus(
+                    "Peer left the call."
+                );
+
+            }
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "WebSocket message error:",
+                error
+            );
+
+            log(
+                "Signaling error: " +
+                error.message
+            );
+
+        }
+
+    };
+
+
+    // ============================================================
+    // WEBSOCKET CLOSED
+    // ============================================================
+
+    callSocket.onclose = () => {
+
+        log(
+            "WebSocket closed."
+        );
+
+
+        setStatus(
+            "Disconnected"
+        );
+
+    };
+
+
+    // ============================================================
+    // WEBSOCKET ERROR
+    // ============================================================
+
+    callSocket.onerror = (error) => {
+
+        console.error(
+            "WebSocket error:",
+            error
+        );
+
+
+        log(
+            "WebSocket error."
+        );
+
+    };
+
+</script>
+```
+
 </body>
 </html>
