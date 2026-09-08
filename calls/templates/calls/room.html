@@ -1,95 +1,116 @@
+```html
 <!DOCTYPE html>
-
 <html>
 <head>
     <title>Call Room: {{ room_name }}</title>
 
-```
-<style>
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #121212;
-        color: #eee;
-        margin: 0;
-        padding: 20px;
-    }
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #121212;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
 
-    h1 {
-        font-size: 18px;
-        font-weight: 500;
-        color: #aaa;
-        margin-bottom: 20px;
-    }
+        h1 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
 
-    h1 span {
-        color: #fff;
-        font-weight: 600;
-    }
+        h1 span {
+            color: #fff;
+            font-weight: 600;
+        }
 
-    #videoGrid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 12px;
-        max-width: 1100px;
-    }
+        #controls {
+            margin-bottom: 15px;
+        }
 
-    .tile {
-        position: relative;
-        background: #1e1e1e;
-        border-radius: 10px;
-        overflow: hidden;
-        aspect-ratio: 4 / 3;
-    }
+        #enableSound {
+            display: none;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
 
-    .tile video {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
+        #enableSound:hover {
+            background: #1d4ed8;
+        }
 
-    .tile .label {
-        position: absolute;
-        bottom: 8px;
-        left: 8px;
-        background: rgba(0, 0, 0, 0.55);
-        padding: 3px 8px;
-        border-radius: 5px;
-        font-size: 12px;
-    }
+        #videoGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            max-width: 1100px;
+        }
 
-    #status {
-        margin-top: 16px;
-        font-size: 13px;
-        color: #777;
-    }
+        .tile {
+            position: relative;
+            background: #1e1e1e;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+        }
 
-    #log {
-        margin-top: 10px;
-        font-size: 12px;
-        color: #555;
-        max-height: 120px;
-        overflow-y: auto;
-    }
+        .tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            background: #000;
+        }
 
-    #log p {
-        margin: 2px 0;
-    }
-</style>
-```
+        .tile .label {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0, 0, 0, 0.55);
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
 
+        #status {
+            margin-top: 16px;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        #log {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #777;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        #log p {
+            margin: 3px 0;
+        }
+    </style>
 </head>
 
 <body>
 
-```
 <h1>
     Room: <span>{{ room_name }}</span>
 </h1>
 
+<div id="controls">
+    <button id="enableSound">
+        Enable sound
+    </button>
+</div>
+
 <div id="videoGrid">
 
-    <!-- Local video -->
     <div class="tile" id="tile-local">
         <video
             id="localVideo"
@@ -103,7 +124,7 @@
 
 </div>
 
-<div id="status">Connecting…</div>
+<div id="status">Connecting...</div>
 
 <div id="log"></div>
 
@@ -145,6 +166,12 @@
         document
             .getElementById("log")
             .appendChild(p);
+
+        const logBox =
+            document.getElementById("log");
+
+        logBox.scrollTop =
+            logBox.scrollHeight;
     }
 
 
@@ -168,24 +195,22 @@
     const peerConnections = {};
 
 
-    // Store ICE candidates that arrive before remote description
+    // ICE candidates received before remote description
     const pendingCandidates = {};
 
 
     // ============================================================
-    // STUN / TURN
+    // ICE SERVERS
     // ============================================================
 
     const iceServers = {
 
         iceServers: [
 
-            // Google STUN
             {
                 urls: "stun:stun.l.google.com:19302"
             },
 
-            // TURN
             {
                 urls: "turn:openrelay.metered.ca:80",
                 username: "openrelayproject",
@@ -204,9 +229,63 @@
                 credential: "openrelayproject"
             }
 
-        ]
+        ],
 
+        iceCandidatePoolSize: 10
     };
+
+
+    // ============================================================
+    // SOUND BUTTON
+    // ============================================================
+
+    const enableSoundButton =
+        document.getElementById("enableSound");
+
+
+    enableSoundButton.addEventListener(
+        "click",
+        async () => {
+
+            const videos =
+                document.querySelectorAll(
+                    "#videoGrid video"
+                );
+
+
+            for (const video of videos) {
+
+                if (video.id === "localVideo") {
+                    continue;
+                }
+
+                video.muted = false;
+
+                try {
+
+                    await video.play();
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Could not start remote video:",
+                        error
+                    );
+
+                }
+
+            }
+
+
+            enableSoundButton.style.display =
+                "none";
+
+            log("Remote sound enabled.");
+
+        }
+    );
 
 
     // ============================================================
@@ -217,7 +296,10 @@
 
         try {
 
-            log("Requesting camera and microphone...");
+            log(
+                "Requesting camera and microphone..."
+            );
+
 
             localStream =
                 await navigator.mediaDevices.getUserMedia({
@@ -227,17 +309,37 @@
 
 
             const localVideo =
-                document.getElementById("localVideo");
+                document.getElementById(
+                    "localVideo"
+                );
 
 
             localVideo.srcObject =
                 localStream;
 
 
-            log("Camera and microphone ready.");
+            await localVideo.play();
+
+
+            log(
+                "Camera and microphone ready."
+            );
+
+
+            log(
+                "Local video tracks: " +
+                localStream.getVideoTracks().length
+            );
+
+
+            log(
+                "Local audio tracks: " +
+                localStream.getAudioTracks().length
+            );
+
 
             setStatus(
-                "Camera ready. Waiting for others to join…"
+                "Camera and microphone ready. Waiting for another person..."
             );
 
         }
@@ -246,14 +348,15 @@
 
             console.error(error);
 
+
             log(
-                "ERROR: Could not access camera/microphone — " +
+                "ERROR: Could not access camera/microphone: " +
                 error.message
             );
 
+
             setStatus(
-                "Camera/mic access failed: " +
-                error.message
+                "Camera/microphone access failed."
             );
 
         }
@@ -325,24 +428,49 @@
             "tile-" + peerId;
 
 
-        tile.innerHTML = `
+        const video =
+            document.createElement("video");
 
-            <video
-                id="video-${peerId}"
-                autoplay
-                playsinline>
-            </video>
 
-            <div class="label">
-                ${peerId.slice(0, 8)}
-            </div>
+        video.id =
+            "video-" + peerId;
 
-        `;
+        video.autoplay = true;
+
+        video.playsInline = true;
+
+        video.controls = false;
+
+        /*
+         * Start muted because browsers can block
+         * autoplay with sound.
+         *
+         * The user can click "Enable sound".
+         */
+        video.muted = true;
+
+
+        const label =
+            document.createElement("div");
+
+
+        label.className = "label";
+
+        label.textContent =
+            peerId.slice(0, 8);
+
+
+        tile.appendChild(video);
+
+        tile.appendChild(label);
 
 
         document
             .getElementById("videoGrid")
             .appendChild(tile);
+
+
+        return video;
 
     }
 
@@ -374,24 +502,56 @@
 
     function createPeerConnection(peerId) {
 
-
-        // IMPORTANT:
-        // Don't create a second connection if one already exists.
+        /*
+         * If an existing connection is healthy,
+         * reuse it.
+         */
 
         if (peerConnections[peerId]) {
 
-            log(
-                "Using existing connection for peer " +
-                peerId.slice(0, 8)
-            );
+            const existing =
+                peerConnections[peerId];
 
-            return peerConnections[peerId];
+
+            if (
+                existing.connectionState !== "failed" &&
+                existing.connectionState !== "closed"
+            ) {
+
+                log(
+                    "Using existing connection for peer " +
+                    peerId.slice(0, 8)
+                );
+
+                return existing;
+
+            }
+
+
+            /*
+             * Remove failed connection.
+             */
+
+            try {
+
+                existing.close();
+
+            }
+
+            catch (error) {
+
+                console.error(error);
+
+            }
+
+
+            delete peerConnections[peerId];
 
         }
 
 
         log(
-            "Creating WebRTC connection for peer " +
+            "Creating NEW WebRTC connection for peer " +
             peerId.slice(0, 8)
         );
 
@@ -403,7 +563,7 @@
 
 
         // ========================================================
-        // ADD OUR CAMERA + MICROPHONE
+        // ADD LOCAL AUDIO + VIDEO
         // ========================================================
 
         if (localStream) {
@@ -412,10 +572,12 @@
                 .getTracks()
                 .forEach((track) => {
 
-                    console.log(
-                        "Adding local track:",
-                        track.kind
+                    log(
+                        "Adding local " +
+                        track.kind +
+                        " track."
                     );
+
 
                     pc.addTrack(
                         track,
@@ -428,7 +590,7 @@
 
 
         // ========================================================
-        // RECEIVE REMOTE CAMERA + MICROPHONE
+        // RECEIVE REMOTE AUDIO + VIDEO
         // ========================================================
 
         pc.ontrack = async (event) => {
@@ -447,10 +609,7 @@
             );
 
 
-            addTile(peerId);
-
-
-            const video =
+            let video =
                 document.getElementById(
                     "video-" + peerId
                 );
@@ -458,32 +617,61 @@
 
             if (!video) {
 
-                console.error(
-                    "Remote video element not found"
-                );
-
-                return;
+                video =
+                    addTile(peerId);
 
             }
 
 
-            // Attach remote stream
-            if (event.streams && event.streams[0]) {
+            if (
+                event.streams &&
+                event.streams.length > 0
+            ) {
 
-                video.srcObject =
+                const remoteStream =
                     event.streams[0];
 
+
+                video.srcObject =
+                    remoteStream;
+
+
+                log(
+                    "Remote stream attached. " +
+                    "Video tracks: " +
+                    remoteStream.getVideoTracks().length +
+                    ", Audio tracks: " +
+                    remoteStream.getAudioTracks().length
+                );
+
             }
 
 
-            // Make sure the video plays
+            /*
+             * Keep video muted initially so the browser
+             * allows autoplay.
+             */
+
+            video.muted = true;
+
+
             try {
 
                 await video.play();
 
+
                 log(
                     "Remote video is playing."
                 );
+
+
+                /*
+                 * Show sound button so the user can
+                 * enable remote audio after interaction.
+                 */
+
+                enableSoundButton.style.display =
+                    "inline-block";
 
             }
 
@@ -494,9 +682,14 @@
                     error
                 );
 
+
                 log(
-                    "Remote video could not autoplay."
+                    "Remote video needs user interaction to play."
                 );
+
+
+                enableSoundButton.style.display =
+                    "inline-block";
 
             }
 
@@ -511,15 +704,73 @@
 
             if (!event.candidate) {
 
+                log(
+                    "ICE gathering complete for peer " +
+                    peerId.slice(0, 8)
+                );
+
                 return;
 
             }
 
 
+            const candidate =
+                event.candidate;
+
+
             console.log(
                 "Sending ICE candidate:",
-                event.candidate.candidate
+                candidate.candidate
             );
+
+
+            /*
+             * Show what type of candidate we have.
+             *
+             * host   = local network
+             * srflx  = STUN discovered address
+             * relay  = TURN server
+             */
+
+            if (
+                candidate.candidate
+            ) {
+
+                if (
+                    candidate.candidate.includes("typ relay")
+                ) {
+
+                    log(
+                        "TURN relay candidate found."
+                    );
+
+                }
+
+                else if (
+                    candidate.candidate.includes("typ srflx")
+                ) {
+
+                    log(
+                        "STUN server-reflexive candidate found."
+                    );
+
+                }
+
+            }
+
+
+            if (
+                callSocket.readyState !==
+                WebSocket.OPEN
+            ) {
+
+                log(
+                    "WebSocket not ready; ICE candidate not sent."
+                );
+
+                return;
+
+            }
 
 
             callSocket.send(
@@ -527,11 +778,9 @@
 
                     type: "ice-candidate",
 
-                    candidate:
-                        event.candidate,
+                    candidate: candidate,
 
-                    target:
-                        peerId
+                    target: peerId
 
                 })
             );
@@ -543,19 +792,21 @@
         // CONNECTION STATE
         // ========================================================
 
-        pc.onconnectionstatechange = () => {
+        pc.onconnectionstatechange = async () => {
+
+            const state =
+                pc.connectionState;
+
 
             log(
                 "Peer " +
                 peerId.slice(0, 8) +
                 ": " +
-                pc.connectionState
+                state
             );
 
 
-            if (
-                pc.connectionState === "connected"
-            ) {
+            if (state === "connected") {
 
                 setStatus(
                     "Connected to " +
@@ -565,33 +816,89 @@
             }
 
 
-            if (
-                pc.connectionState === "failed"
-            ) {
+            if (state === "disconnected") {
 
                 log(
-                    "WebRTC connection failed."
+                    "WebRTC temporarily disconnected."
                 );
 
             }
 
 
-            if (
-                pc.connectionState === "disconnected"
-            ) {
+            if (state === "failed") {
 
                 log(
-                    "WebRTC connection disconnected."
+                    "WebRTC connection failed. Attempting ICE restart..."
                 );
+
+
+                /*
+                 * Try to recover once.
+                 */
+
+                try {
+
+                    if (
+                        pc.signalingState === "stable"
+                    ) {
+
+                        const offer =
+                            await pc.createOffer({
+                                iceRestart: true
+                            });
+
+
+                        await pc.setLocalDescription(
+                            offer
+                        );
+
+
+                        callSocket.send(
+                            JSON.stringify({
+
+                                type: "offer",
+
+                                sdp:
+                                    pc.localDescription,
+
+                                target:
+                                    peerId
+
+                            })
+                        );
+
+
+                        log(
+                            "ICE restart offer sent."
+                        );
+
+                    }
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "ICE restart failed:",
+                        error
+                    );
+
+
+                    log(
+                        "ICE restart error: " +
+                        error.message
+                    );
+
+                }
 
             }
 
 
-            if (
-                pc.connectionState === "closed"
-            ) {
+            if (state === "closed") {
 
-                closePeer(peerId);
+                closePeer(
+                    peerId
+                );
 
             }
 
@@ -604,15 +911,74 @@
 
         pc.oniceconnectionstatechange = () => {
 
+            const state =
+                pc.iceConnectionState;
+
+
             console.log(
                 "ICE state:",
-                pc.iceConnectionState
+                state
             );
 
 
             log(
                 "ICE connection: " +
-                pc.iceConnectionState
+                state
+            );
+
+
+            if (state === "connected") {
+
+                setStatus(
+                    "WebRTC connected."
+                );
+
+            }
+
+
+            if (state === "completed") {
+
+                setStatus(
+                    "WebRTC connection established."
+                );
+
+            }
+
+
+            if (state === "failed") {
+
+                log(
+                    "ICE failed. TURN may be required."
+                );
+
+            }
+
+        };
+
+
+        // ========================================================
+        // ICE GATHERING STATE
+        // ========================================================
+
+        pc.onicegatheringstatechange = () => {
+
+            log(
+                "ICE gathering: " +
+                pc.iceGatheringState
+            );
+
+        };
+
+
+        // ========================================================
+        // SIGNALING STATE
+        // ========================================================
+
+        pc.onsignalingstatechange = () => {
+
+            console.log(
+                "Signaling state:",
+                pc.signalingState
             );
 
         };
@@ -659,10 +1025,14 @@
         }
 
 
-        delete pendingCandidates[peerId];
+        delete pendingCandidates[
+            peerId
+        ];
 
 
-        removeTile(peerId);
+        removeTile(
+            peerId
+        );
 
     }
 
@@ -676,12 +1046,14 @@
         try {
 
             const pc =
-                createPeerConnection(peerId);
+                createPeerConnection(
+                    peerId
+                );
 
 
-            // Don't create another offer while negotiating
             if (
-                pc.signalingState !== "stable"
+                pc.signalingState !==
+                "stable"
             ) {
 
                 log(
@@ -737,6 +1109,7 @@
                 error
             );
 
+
             log(
                 "Offer error: " +
                 error.message
@@ -759,7 +1132,7 @@
 
 
         setStatus(
-            "Connecting camera..."
+            "Starting camera and microphone..."
         );
 
 
@@ -777,7 +1150,9 @@
         try {
 
             const data =
-                JSON.parse(event.data);
+                JSON.parse(
+                    event.data
+                );
 
 
             const peerId =
@@ -807,7 +1182,8 @@
             // ====================================================
 
             if (
-                data.type === "peer-joined"
+                data.type ===
+                "peer-joined"
             ) {
 
                 await makeOfferTo(
@@ -822,28 +1198,59 @@
             // ====================================================
 
             else if (
-                data.type === "offer"
+                data.type ===
+                "offer"
             ) {
 
-                const pc =
-                    createPeerConnection(
+                let pc =
+                    peerConnections[
                         peerId
-                    );
+                    ];
 
 
-                // If we're already connected,
-                // don't replace the existing connection.
+                /*
+                 * If the connection does not exist,
+                 * create it.
+                 */
+
+                if (!pc) {
+
+                    pc =
+                        createPeerConnection(
+                            peerId
+                        );
+
+                }
+
+
+                /*
+                 * Ignore duplicate offers if we're
+                 * already waiting for an answer.
+                 */
 
                 if (
-                    pc.signalingState !==
-                    "stable" &&
-                    pc.signalingState !==
-                    "have-remote-offer"
+                    pc.signalingState ===
+                    "have-local-offer"
                 ) {
 
                     log(
                         "Ignoring duplicate offer from " +
                         peerId.slice(0, 8)
+                    );
+
+                    return;
+
+                }
+
+
+                if (
+                    pc.signalingState !==
+                    "stable"
+                ) {
+
+                    log(
+                        "Ignoring offer because signaling state is " +
+                        pc.signalingState
                     );
 
                     return;
@@ -858,8 +1265,15 @@
                 );
 
 
-                // Add any ICE candidates
-                // that arrived early.
+                log(
+                    "Remote offer applied."
+                );
+
+
+                /*
+                 * Add ICE candidates that arrived
+                 * before the remote description.
+                 */
 
                 if (
                     pendingCandidates[peerId]
@@ -934,7 +1348,8 @@
             // ====================================================
 
             else if (
-                data.type === "answer"
+                data.type ===
+                "answer"
             ) {
 
                 const pc =
@@ -980,7 +1395,9 @@
                 );
 
 
-                // Process candidates that arrived early
+                /*
+                 * Process early ICE candidates.
+                 */
 
                 if (
                     pendingCandidates[peerId]
@@ -1025,7 +1442,8 @@
             // ====================================================
 
             else if (
-                data.type === "ice-candidate"
+                data.type ===
+                "ice-candidate"
             ) {
 
                 const candidate =
@@ -1060,7 +1478,9 @@
 
                     pendingCandidates[
                         peerId
-                    ].push(candidate);
+                    ].push(
+                        candidate
+                    );
 
 
                     log(
@@ -1088,6 +1508,12 @@
                         error
                     );
 
+
+                    log(
+                        "ICE candidate error: " +
+                        error.message
+                    );
+
                 }
 
             }
@@ -1098,7 +1524,8 @@
             // ====================================================
 
             else if (
-                data.type === "peer-left"
+                data.type ===
+                "peer-left"
             ) {
 
                 closePeer(
@@ -1120,6 +1547,7 @@
                 "WebSocket message error:",
                 error
             );
+
 
             log(
                 "Signaling error: " +
@@ -1168,7 +1596,7 @@
     };
 
 </script>
-```
 
 </body>
 </html>
+```
