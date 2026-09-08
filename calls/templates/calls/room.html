@@ -118,8 +118,29 @@
         };
 
         async function startMedia() {
-            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            document.getElementById("localVideo").srcObject = localStream;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById("localVideo").srcObject = localStream;
+            } catch (err) {
+                log("ERROR: could not access camera/mic — " + err.message);
+                setStatus("Camera/mic access failed: " + err.message);
+            }
+        }
+
+        // Ensures we don't process offers/answers before our own media is ready
+        function waitForLocalStream() {
+            return new Promise((resolve) => {
+                if (localStream) {
+                    resolve();
+                    return;
+                }
+                const check = setInterval(() => {
+                    if (localStream) {
+                        clearInterval(check);
+                        resolve();
+                    }
+                }, 100);
+            });
         }
 
         function addTile(peerId) {
@@ -201,10 +222,13 @@
         callSocket.onmessage = async function(e) {
             const data = JSON.parse(e.data);
             const peerId = data.sender;
+
+            // Wait until our own camera/mic stream is ready before handling any peer signaling
+            await waitForLocalStream();
+
             log("Received: " + data.type + " from " + (peerId ? peerId.slice(0, 8) : "?"));
 
             if (data.type === "peer-joined") {
-                // Existing peers each offer to the newcomer.
                 await makeOfferTo(peerId);
                 setStatus(Object.keys(peerConnections).length + " peer(s) connected");
 
