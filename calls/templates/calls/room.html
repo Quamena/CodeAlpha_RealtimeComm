@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Call Room: {{ room_name }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #121212;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+        h1 span {
+            color: #fff;
+            font-weight: 600;
+        }
+        #videoGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            max-width: 1100px;
+        }
+        .tile {
+            position: relative;
+            background: #1e1e1e;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+        }
+        .tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .tile .label {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.55);
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        #status {
+            margin-top: 16px;
+            font-size: 13px;
+            color: #777;
+        }
+        #log {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #555;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        #log p { margin: 2px 0; }
+    </style>
+</head>
+<body>
+    <h1>Room: <span>{{ room_name }}</span></h1>
+
+    <div id="videoGrid">
+        <div class="tile" id="tile-local">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <div class="label">You</div>
+        </div>
+    </div>
+
+    <div id="status">Connecting…</div>
+    <div id="log"></div>
+
+    <script>
+        const roomName = "{{ room_name }}";
+        const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        const callSocket = new WebSocket(
+            wsProtocol + window.location.host + "/ws/call/" + roomName + "/"
+        );
+
+        function log(msg) {
+            console.log(msg);
+            const p = document.createElement("p");
+            p.textContent = msg;
+            document.getElementById("log").appendChild(p);
+        }
+
+        function setStatus(msg) {
+            document.getElementById("status").textContent = msg;
+        }
+
+        let localStream = null;
+        const peerConnections = {};   // peerId -> RTCPeerConnection
+        const iceServers = {
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" }
+            ]
+        };
+
+        async function startMedia() {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById("localVideo").srcObject = localStream;
+        }
+
+        function addTile(peerId) {
+            if (document.getElementById("tile-" + peerId)) return;
+            const tile = document.createElement("div");
+            tile.className = "tile";
+            tile.id = "tile-" + peerId;
+            tile.innerHTML = `
+                <video id="video-${peerId}" autoplay playsinline></video>
+                <div class="label">${peerId.slice(0, 8)}</div>
+            `;
+            document.getElementById("videoGrid").appendChild(tile);
+        }
+
+        function removeTile(peerId) {
+            const tile = document.getElementById("tile-" + peerId);
+            if (tile) tile.remove();
+        }
+
+        function createPeerConnection(peerId) {
+            const pc = new RTCPeerConnection(iceServers);
+
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+            });
+
+            pc.ontrack = (event) => {
+                addTile(peerId);
+                document.getElementById("video-" + peerId).srcObject = event.streams[0];
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    callSocket.send(JSON.stringify({
+                        type: "ice-candidate",
+                        candidate: event.candidate,
+                        target: peerId,
+                    }));
+                }
+            };
+
+            pc.onconnectionstatechange = () => {
+                log(`Peer ${peerId.slice(0, 8)}: ${pc.connectionState}`);
+                if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+                    closePeer(peerId);
+                }
+            };
+
+            peerConnections[peerId] = pc;
+            return pc;
+        }
+
+        function closePeer(peerId) {
+            const pc = peerConnections[peerId];
+            if (pc) {
+                pc.close();
+                delete peerConnections[peerId];
+            }
+            removeTile(peerId);
+        }
+
+        async function makeOfferTo(peerId) {
+            const pc = createPeerConnection(peerId);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            callSocket.send(JSON.stringify({
+                type: "offer",
+                sdp: offer,
+                target: peerId,
+            }));
+        }
+
+        callSocket.onopen = async function() {
+            log("WebSocket connected.");
+            setStatus("Waiting for others to join…");
+            await startMedia();
+        };
+
+        callSocket.onmessage = async function(e) {
+            const data = JSON.parse(e.data);
+            const peerId = data.sender;
+            log("Received: " + data.type + " from " + (peerId ? peerId.slice(0, 8) : "?"));
+
+            if (data.type === "peer-joined") {
+                // Existing peers each offer to the newcomer.
+                await makeOfferTo(peerId);
+                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
+
+            } else if (data.type === "offer") {
+                const pc = createPeerConnection(peerId);
+                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                callSocket.send(JSON.stringify({
+                    type: "answer",
+                    sdp: answer,
+                    target: peerId,
+                }));
+                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
+
+            } else if (data.type === "answer") {
+                const pc = peerConnections[peerId];
+                if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+
+            } else if (data.type === "ice-candidate") {
+                const pc = peerConnections[peerId];
+                if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+
+            } else if (data.type === "peer-left") {
+                closePeer(peerId);
+                setStatus(Object.keys(peerConnections).length + " peer(s) connected");
+            }
+        };
+
+        callSocket.onclose = function() {
+            log("WebSocket closed.");
+            setStatus("Disconnected");
+        };
+    </script>
+</body>
+</html>
